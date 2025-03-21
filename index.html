@@ -250,7 +250,7 @@
 			let html = "";
 			boardJson.cards.forEach(function(card,index){
 				let matchesFilter = cardMemberIdFilter==undefined || cardMemberIdFilter=='' || card.idMembers.includes(cardMemberIdFilter);
-				if(card.idList === list.id && matchesFilter){
+				if(card.idList === list.id && matchesFilter && !card.closed){
 					loadedListCards.push(card);
 					html+=createCardTableRowHtml(card,index);;
 				}
