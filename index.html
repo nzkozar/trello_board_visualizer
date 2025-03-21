@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<title>Trello board JSON parse</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+
+    <style>
+    	table{
+    		border-collapse: collapse;
+    	}
+
+    	tr{
+    		margin-bottom: 8px;
+    	}
+
+    	td, th{
+    		padding-left: 5px;
+    		padding-right: 5px;
+    		padding-bottom: 3px;
+    		padding-top: 3px;
+    	}
+
+    	tr:nth-child(odd) {
+		  background-color: #f2f2f2;
+		}
+    </style>
+
+</head>
+<body class="p-3">
+	<div id="fileDropArea" class="container-fluid">
+		<h1 id="boardTitleText">&nbsp;</h1>
+		<div class="row">
+			<div class="col-4">
+				<div class="p-2 border border-primary rounded bg-primary-subtle"
+					style="width:100%;height:100px;">
+					<p id="dropAreaText" class="fw-bold">Drop Trello board .json export here</p>
+				</div>
+			</div>
+
+			<div class="col-4">
+				<span class="fw-bold">Board members:</span>
+				<ol id="boardMemberNamesList"></ol>
+			</div>
+
+			<div class="col-4">
+				<span class="fw-bold">Custom fields:</span>
+				<ol id="boardCustomFieldsList"></ol>
+			</div>
+
+			<div id="listsContainer" class="col-12 mt-2">
+				<h2>Lists</h2>
+				<input type="text" class="form-control" id="listNameFilterInput" placeholder="Search by list name" autocomplete="off" />
+				<table class="border border-primary w-100">
+					<thead>
+						<tr>
+							<th>List name</th>
+						</tr>
+					</thead>
+					<tbody id="boardLists"></tbody>
+				</table>
+			</div>
+
+			<div id="cardsContainer" class="col-12 mt-2 d-none">
+				<div class="row">
+					<div class="col-1">
+						<button id="backToListsButton" type="button" class="btn btn-primary" title="Back to lists">&times;</button>
+					</div>
+					<div class="col-6">
+						<h2 id="cardsTableTitle"></h2>
+					</div>
+					<div class="col-5 text-end">
+						<select class="form-select" id="cardMemberFilterSelect" autocomplete="off">
+							<option value="">-- All members --</option>
+						</select>
+					</div>
+				</div>
+				<table class="border border-primary w-100">
+					<thead id=listCardsHeaders>
+						<tr>
+							<th>Title</th>
+							<th>Members</th>
+						</tr>
+					</thead>
+					<tbody id="listCards">
+						
+					</tbody>
+				</table>
+			</div>
+
+		</div>
+
+		
+	</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+
+	<script>
+		let selectedFile = null;
+		let loadedBoardJson = null;
+		let loadedLists = [];
+		let loadedList = null;
+		let loadedListCards = [];
+		let boardMembers = [];
+		let customFields = [];
+
+		let boardTitleText = $("#boardTitleText");
+		let dropAreaText = $("#dropAreaText");
+		let boardMemberNamesList = $("#boardMemberNamesList");
+		let boardCustomFieldsList = $("#boardCustomFieldsList");
+		let boardListsTable = $("#boardLists");
+		let listCardsHeaders = $("#listCardsHeaders");
+		let listCardsTable = $("#listCards");
+		let listNameFilterInput = $("#listNameFilterInput");
+		let listsDisplayContainer = $("#listsContainer");
+		let cardsDisplayContainer = $("#cardsContainer");
+		let cardsTableTitle = $("#cardsTableTitle");
+		let cardMemberFilterSelect = $("#cardMemberFilterSelect");
+		let backToListsButton = $("#backToListsButton");
+
+		let listNameFilter = "";
+		let cardMemberIdFilter = "";
+
+		function parseFile(fileList){
+			let file = fileList[0];
+
+			if (file.type && file.type !== 'application/json') {
+			    console.log('File is not JSON.', file.type, file);
+			    return;
+			}
+			selectedFile = file;
+
+			dropAreaText.html("<b>Selected file:</b><br>"+file.name);
+			dropAreaText.removeClass("fw-bold");
+
+			const reader = new FileReader();
+			reader.addEventListener('load', (event) => {
+				loadedBoardJson = JSON.parse(event.target.result);
+
+				boardTitleText.html(loadedBoardJson.name+" (<a href="+loadedBoardJson.url+">open</a>)");
+				boardMembers = loadedBoardJson.members;
+				loadBoardMembers(boardMembers);
+				customFields = loadedBoardJson.customFields;
+				loadBoardCustomFields(customFields);
+				displayBoardListsData(loadedBoardJson,listNameFilter);
+			});
+			reader.readAsText(file);
+		}
+
+		function loadBoardMembers(boardMembers){
+			let namesListHtml = "";
+			let selectOptionsHtml = "<option value=''>-- All members --</option>";
+			boardMembers.forEach(function(member,index){
+				let memberNameTag = member.fullName+" ("+member.initials+")";
+				namesListHtml+="<li>"+memberNameTag+"</li>";
+				selectOptionsHtml+=`<option value="${member.id}">${memberNameTag}</option>`;
+			});
+			boardMemberNamesList.html(namesListHtml);
+			cardMemberFilterSelect.html(selectOptionsHtml);
+		}
+
+		function loadBoardCustomFields(customFields){
+			let namesListHtml = "";
+			let listCardsHeadersHtml = "<tr><th>Title</th><th>Last activity</th><th>Members</th>";
+			customFields.forEach(function(field,index){
+				namesListHtml+="<li>"+field.name+"</li>";
+				listCardsHeadersHtml+="<th>"+field.name+"</th>";
+			});
+			boardCustomFieldsList.html(namesListHtml);
+			listCardsHeaders.html(listCardsHeadersHtml+"</tr>");
+		}
+
+		function displayBoardListsData(boardJson,listNameFilter){
+			let html = "";
+			let lists = boardJson.lists;
+			loadedLists = [];
+			lists.forEach(function(list,index){
+				loadedLists.push(list);
+				let mathesFilter = listNameFilter==undefined || listNameFilter=='' || list.name.includes(listNameFilter);
+				if(!list.closed && mathesFilter){
+					let rowHtml = `
+						<tr class="shadow-sm"><td><a href="#${list.id}" class="listLink" data-listid="${list.id}">${list.name}</a></td></tr>
+					`;
+					html+=rowHtml;
+				}
+			});
+			boardListsTable.html(html);
+
+			$(".listLink").on('click touch',function(){
+				let listId = this.dataset.listid;
+				let list = null;
+				for(let i=0;i<loadedLists.length;i++){
+					if(loadedLists[i].id === listId){
+						list=loadedLists[i];
+						break;
+					}
+				}
+				if(list!==null){
+					loadedList = list;
+					displayBoardListCardsData(loadedBoardJson,list);
+				}
+			});
+
+			cardsDisplayContainer.addClass('d-none');
+			listsDisplayContainer.removeClass('d-none');
+		}
+
+		function createCardTableRowHtml(card,index){
+			let rowHtml = "<tr>";
+			//Concatenate card member initials
+			let memberInitials = "";
+			card.idMembers.forEach(function(id,index) {
+				for(let i=0;i<boardMembers.length;i++){
+					if(boardMembers[i].id === id){
+						if(memberInitials!=="")memberInitials+=",";
+						memberInitials+=boardMembers[i].initials;
+						break;
+					}
+				}
+			});
+			let lastCardActivity = card.dateCompleted!==null?card.dateCompleted:card.dateLastActivity;
+			if(lastCardActivity!==undefined)lastCardActivity=moment(lastCardActivity).format("YYYY-MM-DD");
+			else lastCardActivity = '';
+
+			rowHtml+=`<td>${card.name}</a>`;rowHtml+=`</td><td>${lastCardActivity}</td><td>${memberInitials}</td>`;
+			//Fill custom field data
+			let cardCustomFields = card.customFieldItems;
+			customFields.forEach(function(field,index){
+				let fieldValue = '';
+				for(let i=0;i<cardCustomFields.length;i++){
+					if(cardCustomFields[i].idCustomField === field.id){
+						fieldValue = cardCustomFields[i].value;
+						if(fieldValue.text!==undefined)fieldValue=fieldValue.text;
+						else if(fieldValue.number!==undefined)fieldValue=fieldValue.number;
+						else fieldValue = JSON.stringify(fieldValue);
+						break;
+					}
+				}
+				rowHtml+=`<td>${fieldValue}</td>`;
+			});
+
+			return rowHtml+="</tr>";
+		}
+
+		function displayBoardListCardsData(boardJson,list){
+			loadedListCards = [];
+			let html = "";
+			boardJson.cards.forEach(function(card,index){
+				let matchesFilter = cardMemberIdFilter==undefined || cardMemberIdFilter=='' || card.idMembers.includes(cardMemberIdFilter);
+				if(card.idList === list.id && matchesFilter){
+					loadedListCards.push(card);
+					html+=createCardTableRowHtml(card,index);;
+				}
+			});
+			cardsTableTitle.html("List <u>"+list.name+"</u> ("+loadedListCards.length+")");
+			listCardsTable.html(html);
+			listsDisplayContainer.addClass('d-none');
+			cardsDisplayContainer.removeClass('d-none');
+		}
+
+		backToListsButton.on('click touch',function(){
+			loadedList=null;
+			displayBoardListsData(loadedBoardJson,listNameFilter);
+		});
+
+		listNameFilterInput.on('keyup paste',function(){
+			listNameFilter = this.value;
+			if(loadedBoardJson !== null){
+				displayBoardListsData(loadedBoardJson,listNameFilter);
+			}
+		});
+
+		cardMemberFilterSelect.on('change',function(){
+			cardMemberIdFilter = this.value;
+			displayBoardListCardsData(loadedBoardJson,loadedList);
+		});
+
+	  	const dropArea = document.getElementById('fileDropArea');
+		dropArea.addEventListener('dragover', (event) => {
+		  	event.stopPropagation();
+		  	event.preventDefault();
+		  	// Style the drag-and-drop as a "copy file" operation.
+		  	event.dataTransfer.dropEffect = 'copy';
+		});
+
+	  	dropArea.addEventListener('drop', (event) => {
+			event.stopPropagation();
+			event.preventDefault();
+			parseFile(event.dataTransfer.files);
+	  	});
+	</script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script src=" https://cdn.jsdelivr.net/npm/moment@2.30.1/moment.min.js"></script>
+</body>
+</html>
